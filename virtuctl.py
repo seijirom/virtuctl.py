@@ -137,6 +137,8 @@ def get_outputs( nets, outfile, start, stop, step, results_dir='asiGetResultsDir
     """print range must be specified w/ start, stop and step"""
     global virtuoso_dir
     from time import sleep
+    csvfile = outfile
+    outfile = re.sub('.csv', '.txt', csvfile)
     waveforms =' '.join( map(lambda n: ('getData(\\"%s\\" ?resultsDir %s ?result \\"%s\\")' % (n, results_dir, type)),
                               nets))
     cwd = os.getcwd()
@@ -148,24 +150,15 @@ def get_outputs( nets, outfile, start, stop, step, results_dir='asiGetResultsDir
         while not os.path.exists(outfile): sleep(0.1)
         print(outfile + ' created!')
         if os.path.exists(outfile):
-            csvfile = re.sub('.txt', '.csv', outfile)
             if os.path.exists(csvfile): os.remove(csvfile)
             text2csv(outfile, csvfile)
+            print('converted to ' + csvfile)
             os.chdir(cwd)
             return(csvfile)
     finally:
         os.chdir(cwd)
         return()
 
-def get_variables(): # not used
-    exec_skill("session=asiGetCurrentSession()")
-    exec_skill("vars = asiGetDesignVarList(session)")
-    exec_skill("f=outfile(\\\"result\\\"")
-    exec_skill("fprint(f \\\"%L\\\" vars)")
-    exec_skill("f.close")
-    with open("result", 'r') as f:
-        return(f.readlines())
-    
 get_variables_in_skill = '''
 session=asiGetCurrentSession()
 vars = asiGetDesignVarList(session)
@@ -174,12 +167,10 @@ fprintf(f "%L" vars)
 close(f)
 '''
 
-def setvars(names, gl=globals()):
-    """Set virtuoso session variables (names given) with Python variable values"""
-    import re
+def getvars():
+    '''Get variables in Cadence ADE''' 
     global virtuoso_dir
-    from time import sleep
-
+    from time import sleep    
     cwd = os.getcwd()
     os.chdir(virtuoso_dir)
     try:
@@ -189,20 +180,27 @@ def setvars(names, gl=globals()):
             f.write(get_variables_in_skill)
 
         exec_skill("load(\\\"getvars.il\\\")")
-        while not os.path.exists('##variables'): sleep(0.1)
 
+        while not os.path.exists('##variables'): sleep(0.1)
         with open("##variables") as f:
             vars = f.read()
-            for name in re.sub(' *', '', names).split(','):
-                vars = re.sub(('"%s" "[^"]*"' %name), ('"%s" "%f"' %(name, eval(name, gl))), vars)
-
-        with open("setvars.il", 'w') as f:
-            f.write("asiSetDesignVarList(session nil)\n")
-            f.write("vars='%s\n" %vars)
-            f.write("asiSetDesignVarList(session vars)\n")
-        exec_skill("load(\\\"setvars.il\\\")")
     finally:
         os.chdir(cwd)
+    return(vars)
+
+def setvars(names, gl=globals()):
+    """Set virtuoso session variables (names given) with Python variable values"""
+    import re
+    global virtuoso_dir
+    vars = getvars()
+    for name in re.sub(' *', '', names).split(','):
+        vars = re.sub(('"%s" "[^"]*"' %name), ('"%s" "%f"' %(name, eval(name, gl))), vars)
+
+    with open("%s/setvars.il" %virtuoso_dir, 'w') as f:
+        f.write("asiSetDesignVarList(session nil)\n")
+        f.write("vars='%s\n" %vars)
+        f.write("asiSetDesignVarList(session vars)\n")
+    exec_skill("load(\\\"setvars.il\\\")")
     return(vars)
 
 def show_cells(library, pattern=None):
